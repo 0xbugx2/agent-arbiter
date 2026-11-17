@@ -42,6 +42,25 @@ MAX_NOTES_CHARS = 500         # stored clarity notes are capped
 
 # --- Module-level helpers (pure Python; used by leader AND validator) ------
 
+def _as_address(value):
+    """Coerce a value to Address.
+
+    Some callers (GenLayer Studio's interaction form, the direct test
+    runner) deliver Address-typed arguments as a plain integer or raw
+    bytes instead of an Address object, and the storage layer rejects
+    those ('int' object has no attribute 'as_bytes'). Integers are the
+    address's big-endian numeric value, matching how Studio encodes
+    addresses in transaction JSON.
+    """
+    if isinstance(value, Address):
+        return value
+    if isinstance(value, int):
+        return Address(value.to_bytes(20, "big"))
+    if isinstance(value, (bytes, bytearray)):
+        return Address(bytes(value))
+    return Address(str(value))
+
+
 def _parse_llm_json(raw):
     """Parse an LLM response that may be a dict, a fenced string, or messy.
 
@@ -306,7 +325,8 @@ class AgentArbiter(gl.Contract):
     @gl.public.write
     def create_agreement(self, worker: Address, terms: str, amount: u256) -> u256:
         """Record a new service agreement. The sender is the client."""
-        sender = gl.message.sender_address
+        worker = _as_address(worker)
+        sender = _as_address(gl.message.sender_address)
         if worker == sender:
             raise gl.vm.UserError("[EXPECTED] Client and worker must be different accounts")
         if not terms or not terms.strip():
@@ -332,7 +352,7 @@ class AgentArbiter(gl.Contract):
     @gl.public.write
     def cancel_agreement(self, agreement_id: u256) -> None:
         """The client may cancel an agreement that has no open dispute."""
-        sender = gl.message.sender_address
+        sender = _as_address(gl.message.sender_address)
         agreement = self._agreement_or_error(agreement_id)
         if sender != agreement.client:
             raise gl.vm.UserError("[EXPECTED] Only the client can cancel the agreement")
@@ -351,7 +371,7 @@ class AgentArbiter(gl.Contract):
         `_clarity_equivalent`). Most real-world disputes start as vague
         terms — this pre-flight check makes that visible before money moves.
         """
-        sender = gl.message.sender_address
+        sender = _as_address(gl.message.sender_address)
         agreement = self._agreement_or_error(agreement_id)
         if sender != agreement.client and sender != agreement.worker:
             raise gl.vm.UserError("[EXPECTED] Only a party to the agreement can assess its terms")
@@ -391,7 +411,7 @@ class AgentArbiter(gl.Contract):
     @gl.public.write
     def open_dispute(self, agreement_id: u256, claim: str, evidence_url: str) -> u256:
         """Either party opens a dispute, stating their claim and evidence."""
-        sender = gl.message.sender_address
+        sender = _as_address(gl.message.sender_address)
         agreement = self._agreement_or_error(agreement_id)
         if agreement.status != "OPEN":
             raise gl.vm.UserError("[EXPECTED] Agreement is not open for a new dispute")
@@ -425,7 +445,7 @@ class AgentArbiter(gl.Contract):
     @gl.public.write
     def submit_response(self, dispute_id: u256, response: str, evidence_url: str) -> None:
         """The respondent answers the claim with their side and evidence."""
-        sender = gl.message.sender_address
+        sender = _as_address(gl.message.sender_address)
         dispute = self._dispute_or_error(dispute_id)
         if sender != dispute.respondent:
             raise gl.vm.UserError("[EXPECTED] Only the respondent can submit a response")
@@ -450,7 +470,7 @@ class AgentArbiter(gl.Contract):
         are equivalent (see `_verdict_equivalent`). The stored verdict is
         therefore a committee judgment, not one model's opinion.
         """
-        sender = gl.message.sender_address
+        sender = _as_address(gl.message.sender_address)
         dispute = self._dispute_or_error(dispute_id)
         if sender != dispute.claimant and sender != dispute.respondent:
             raise gl.vm.UserError("[EXPECTED] Only a party to the dispute can resolve it")
