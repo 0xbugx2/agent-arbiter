@@ -32,7 +32,7 @@ OUTCOMES = ("CLIENT_WINS", "WORKER_WINS", "SPLIT", "INCONCLUSIVE")
 
 CLARITY_THRESHOLD = 70        # terms scoring >= this are "clear enough"
 CLARITY_SCORE_TOLERANCE = 15  # |leader score - validator score| allowed
-SHARE_TOLERANCE_BPS = 500     # SPLIT shares may differ by at most 5%
+SHARE_STEP_BPS = 500          # SPLIT shares are canonicalized to 5% steps
 CONFIDENCE_TOLERANCE = 20     # confidence (0-100) may differ by at most 20
 
 MAX_EVIDENCE_CHARS = 6000     # evidence pages are truncated to this length
@@ -93,6 +93,28 @@ def _coerce_int(value, lo, hi):
     if n > hi:
         return hi
     return n
+
+
+def _canonical_share(share: int) -> int:
+    """Canonicalize a SPLIT worker share to the nearest SHARE_STEP_BPS step.
+
+    The stored share IS the settlement instruction, so it must be a value
+    the whole committee agreed on — not one leader's raw LLM output that
+    other validators merely came close to. Every evaluator (leader and
+    validators alike) runs its raw share through this same deterministic
+    function, and equivalence then requires the canonical values to match
+    EXACTLY. Two honest evaluations that land in the same 5% bucket agree
+    on the identical stored number; evaluations in different buckets fail
+    consensus instead of storing a value nobody actually agreed to.
+    Pure integer arithmetic — identical on every validator.
+    """
+    step = SHARE_STEP_BPS
+    canonical = ((share + step // 2) // step) * step
+    if canonical < 0:
+        return 0
+    if canonical > 10000:
+        return 10000
+    return canonical
 
 
 def _error_tag(err) -> str:
@@ -183,9 +205,12 @@ def _verdict_equivalent(leader, mine) -> bool:
     """Equivalence for a dispute verdict.
 
     Decision fields: `outcome` must match EXACTLY. For INCONCLUSIVE the
-    outcome match is the whole decision (gate check). For SPLIT, the
-    worker's share may drift by at most SHARE_TOLERANCE_BPS between two
-    honest evaluations; for CLIENT_WINS / WORKER_WINS the share is pinned
+    outcome match is the whole decision (gate check). The worker's share
+    must also match EXACTLY: it is the settlement instruction that gets
+    stored, so a tolerance here would store a number the committee never
+    agreed on. Exact matching is workable because every evaluator first
+    canonicalizes its raw share to a SHARE_STEP_BPS step (see
+    `_canonical_share`) and CLIENT_WINS / WORKER_WINS shares are pinned
     (0 / 10000) by construction. Confidence is a soft signal compared with
     tolerance. `reasoning` is stored but NEVER compared — wording differs
     between LLMs even when the judgment is identical.
@@ -201,7 +226,7 @@ def _verdict_equivalent(leader, mine) -> bool:
         conf_diff = abs(int(leader["confidence"]) - int(mine["confidence"]))
     except (KeyError, TypeError, ValueError):
         return False
-    return share_diff <= SHARE_TOLERANCE_BPS and conf_diff <= CONFIDENCE_TOLERANCE
+    return share_diff == 0 and conf_diff <= CONFIDENCE_TOLERANCE
 
 
 def _clarity_prompt(terms: str) -> str:
@@ -238,6 +263,8 @@ Rules you must follow:
   agreed amount belongs to the worker (worker share 10000).
 - "SPLIT" means the delivery was partial: set the worker's share in basis
   points (0-10000) to the fraction of the obligation that was fulfilled.
+  The share is rounded to the nearest 5% step (500 basis points) before
+  it is stored, so pick the 5% step closest to your judgment.
 - "INCONCLUSIVE" means the evidence provided does not allow a responsible
   judgment either way. Prefer a decision when the evidence supports one.
 
@@ -508,6 +535,11 @@ class AgentArbiter(gl.Contract):
                 share = 0
             elif outcome == "WORKER_WINS":
                 share = 10000
+            elif outcome == "SPLIT":
+                # Canonicalize BEFORE anyone compares: the stored share is
+                # the settlement instruction, so it must be the one value
+                # every validator reproduces exactly (see _canonical_share).
+                share = _canonical_share(share)
             return {
                 "outcome": outcome,
                 "worker_share_bps": share,

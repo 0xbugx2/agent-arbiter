@@ -60,8 +60,11 @@ git branch -M main && git push -u origin main
   and re-run the adjudication on their own LLMs; the verdict (CLIENT_WINS
   / WORKER_WINS / SPLIT with a basis-point payment split / INCONCLUSIVE)
   is stored only when the committee's decision fields are equivalent
-  under the contract's rules: outcome exact-match, SPLIT share within
-  500 bps, confidence within 20, reasoning never compared. A second
+  under the contract's rules: outcome exact-match, worker share
+  exact-match (SPLIT shares are canonicalized to the nearest 5% step
+  inside the evaluation, so the stored settlement value is the one
+  value every validator reproduced), confidence within 20, reasoning
+  never compared. A second
   non-deterministic operation, assess_terms, scores how adjudicable an
   agreement's terms are before work starts.
 

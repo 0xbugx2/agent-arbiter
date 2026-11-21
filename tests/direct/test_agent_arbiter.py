@@ -297,6 +297,33 @@ def test_resolve_split(direct_vm, direct_deploy, direct_alice, direct_bob):
     assert dispute["worker_share_bps"] == 6000
 
 
+def test_resolve_split_canonicalizes_share(direct_vm, direct_deploy, direct_alice, direct_bob):
+    # A raw LLM share of 6300 is not a value the committee agreed on; the
+    # stored settlement share must be the canonical 5% step (6500) that
+    # every validator reproduces exactly from its own evaluation.
+    contract = _deploy(direct_deploy)
+    _, dispute_id = _ready_dispute(contract, direct_vm, direct_alice, direct_bob)
+
+    _mock_adjudication(direct_vm, "SPLIT", 6300, 70)
+    direct_vm.sender = direct_alice
+    contract.resolve_dispute(dispute_id)
+
+    dispute = _dispute(contract, dispute_id)
+    assert dispute["outcome"] == "SPLIT"
+    assert dispute["worker_share_bps"] == 6500
+
+
+def test_resolve_split_canonicalizes_down(direct_vm, direct_deploy, direct_alice, direct_bob):
+    contract = _deploy(direct_deploy)
+    _, dispute_id = _ready_dispute(contract, direct_vm, direct_alice, direct_bob)
+
+    _mock_adjudication(direct_vm, "SPLIT", 6249, 70)
+    direct_vm.sender = direct_alice
+    contract.resolve_dispute(dispute_id)
+
+    assert _dispute(contract, dispute_id)["worker_share_bps"] == 6000
+
+
 def test_resolve_inconclusive_reopens_agreement(direct_vm, direct_deploy, direct_alice, direct_bob):
     contract = _deploy(direct_deploy)
     agreement_id, dispute_id = _ready_dispute(contract, direct_vm, direct_alice, direct_bob)

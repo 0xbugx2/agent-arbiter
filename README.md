@@ -100,7 +100,7 @@ entire evaluation itself (its own `web.render` evidence fetches, its own
 |---|---|---|
 | `outcome` | exact match | The verdict is the decision; anything less is not consensus |
 | `is_clear` (clarity) | exact match | Gate check: a score tolerance must never flip "too vague" into "clear" |
-| `worker_share_bps` | exact for decisive outcomes (pinned 0 / 10000 by construction); ±500 bps for `SPLIT` | Two honest evaluations of partial delivery rarely agree to the point |
+| `worker_share_bps` | exact match for every outcome | The share **is** the settlement instruction, so a tolerance would store a number the committee never agreed on. Decisive outcomes are pinned (0 / 10000) by construction; `SPLIT` shares are canonicalized to the nearest 5% step (500 bps) inside `evaluate()`, so honest evaluations of partial delivery reproduce the identical stored value — or consensus fails and the leader rotates |
 | `clarity_score`, `confidence` | ±15 / ±20 | LLM scoring is subjective; the docs' numeric-tolerance pattern |
 | `reasoning`, `missing` text | **not compared** | Wording differs between LLMs even when judgment is identical |
 
